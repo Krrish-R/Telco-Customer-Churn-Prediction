@@ -1,6 +1,8 @@
 # Customer Churn Prediction
 
-A machine learning project to predict customer churn using the Telco dataset. It includes data cleaning, exploratory data analysis (EDA), feature engineering, model training/tuning, and a simple Streamlit web app for predictions.
+🔗 **Live Demo:** [telco-customer-churn-prediction-project.streamlit.app](https://telco-customer-churn-prediction-project.streamlit.app/)
+
+A machine learning project to predict customer churn using the Telco dataset. It includes data cleaning, exploratory data analysis (EDA), feature engineering, model training/tuning, and a Streamlit web app for real-time predictions.
 
 ## Overview
 
@@ -68,8 +70,8 @@ Customer Churn Prediction/
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-username/Customer-Churn-Prediction.git
-   cd Customer-Churn-Prediction
+   git clone https://github.com/Krrish-R/Telco-Customer-Churn-Prediction.git
+   cd Telco-Customer-Churn-Prediction
    ```
 
 2. **Install dependencies**:
