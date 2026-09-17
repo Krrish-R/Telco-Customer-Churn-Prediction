@@ -92,8 +92,15 @@ except Exception as e:
 # -------------------------------------------------------------
 # 2. Feature Engineering Helper
 # -------------------------------------------------------------
+OPTIMAL_THRESHOLD = 0.50  # Default decision threshold aligned with SVM class-balanced predictions
+
 def preprocess_features(df_input):
     df = df_input.copy()
+    
+    # Handle Total Charges whitespace strings and NaN conversion
+    if 'Total Charges' in df.columns:
+        df['Total Charges'] = pd.to_numeric(df['Total Charges'], errors='coerce').fillna(0)
+        
     services_list = [
         'Online Security', 'Online Backup', 'Device Protection',
         'Tech Support', 'Streaming TV', 'Streaming Movies'
@@ -105,14 +112,24 @@ def preprocess_features(df_input):
             
     df['Total Services'] = df[services_list].eq('Yes').sum(axis=1)
     df['Automatic Payment'] = df['Payment Method'].astype(str).str.contains('automatic', case=False).map({True: 'Yes', False: 'No'})
-    df['Has Internet'] = (df['Internet Service'] != 'No').map({True: 'Yes', False: 'No'})
-    df['Lives Alone'] = ((df['Partner'] == 'No') & (df['Dependents'] == 'No')).map({True: 'Yes', False: 'No'})
+    
+    partner_col = df['Partner'] if 'Partner' in df.columns else 'No'
+    dep_col = df['Dependents'] if 'Dependents' in df.columns else 'No'
+    df['Lives Alone'] = ((partner_col == 'No') & (dep_col == 'No')).map({True: 'Yes', False: 'No'})
+    
     df['Tenure Group'] = pd.cut(
         df['Tenure Months'],
         bins=[0, 12, 24, 48, 72],
         labels=['0-12 Months', '13-24 Months', '25-48 Months', '49-72 Months'],
         include_lowest=True
     )
+    
+    df['Has Internet'] = df['Internet Service'].apply(lambda x: 'No' if str(x) == 'No' else 'Yes')
+    
+    # Drop redundant base columns to match trained pipeline schema
+    redundant_to_drop = ['Partner', 'Dependents', 'Streaming TV', 'Streaming Movies']
+    df.drop(columns=[c for c in redundant_to_drop if c in df.columns], inplace=True)
+    
     return df
 
 # -------------------------------------------------------------
@@ -277,8 +294,8 @@ with tab1:
         }
         df_single = preprocess_features(pd.DataFrame([raw_data]))
         
-        pred = pipeline.predict(df_single)[0]
         prob = pipeline.predict_proba(df_single)[0, 1]
+        pred = 1 if prob >= OPTIMAL_THRESHOLD else 0
         pct = round(prob * 100, 1)
 
         st.divider()
@@ -343,11 +360,11 @@ with tab2:
                 
                 with st.spinner("Processing batch predictions..."):
                     processed_batch = preprocess_features(batch_df)
-                    batch_preds = pipeline.predict(processed_batch)
                     batch_probs = pipeline.predict_proba(processed_batch)[:, 1]
+                    batch_preds = ["Churn" if p >= OPTIMAL_THRESHOLD else "Stay" for p in batch_probs]
                     
                     results_df = batch_df.copy()
-                    results_df["Churn Prediction"] = ["Churn" if p == 1 else "Stay" for p in batch_preds]
+                    results_df["Churn Prediction"] = batch_preds
                     results_df["Churn Probability (%)"] = (batch_probs * 100).round(2)
                     results_df["Risk Level"] = pd.cut(
                         results_df["Churn Probability (%)"],
@@ -394,33 +411,37 @@ with tab3:
             raw_feat_names = preproc.get_feature_names_out()
             clean_feat_names = [f.replace('num__', '').replace('cat__', '').replace('remainder__', '') for f in raw_feat_names]
             
-            feat_df = pd.DataFrame({
-                'Feature': clean_feat_names,
-                'Importance': clf.feature_importances_
-            }).sort_values('Importance', ascending=True).tail(12)
-            
-            fig_bar = px.bar(
-                feat_df,
-                x='Importance',
-                y='Feature',
-                orientation='h',
-                color='Importance',
-                color_continuous_scale=['#93C5FD', '#1E40AF']
-            )
-            fig_bar.update_layout(
-                height=420,
-                margin=dict(l=20, r=20, t=20, b=20),
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                coloraxis_showscale=False
-            )
-            st.plotly_chart(fig_bar, use_container_width=True)
-            
-            st.markdown("""
-            **Key Drivers:**
-            - **Tenure Months**: Shorter tenure is the single strongest indicator of customer churn.
-            - **Fiber Optic Internet**: High billing with lack of complementary security/tech support drives cancellations.
-            - **Payment Method & Contract**: Month-to-month contracts and electronic check payments show the highest churn rates.
-            """)
+            if hasattr(clf, 'feature_importances_'):
+                feat_df = pd.DataFrame({
+                    'Feature': clean_feat_names,
+                    'Importance': clf.feature_importances_
+                }).sort_values('Importance', ascending=True).tail(12)
+                
+                fig_bar = px.bar(
+                    feat_df,
+                    x='Importance',
+                    y='Feature',
+                    orientation='h',
+                    color='Importance',
+                    color_continuous_scale=['#93C5FD', '#1E40AF']
+                )
+                fig_bar.update_layout(
+                    height=420,
+                    margin=dict(l=20, r=20, t=20, b=20),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    coloraxis_showscale=False
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.info("Active model: Support Vector Classifier (SVM with RBF kernel). SVM maps complex non-linear boundaries in high-dimensional feature space, prioritizing recall for churn retention.")
+                
+                st.markdown("""
+                **Key Churn Indicators Identified in EDA & Feature Engineering:**
+                - **Tenure Months**: New customers (0-12 months) show the highest churn propensity.
+                - **Fiber Optic Service**: Customers with fiber internet but lacking technical support/security are at elevated risk.
+                - **Month-to-month Contracts**: Significantly higher churn risk compared to 1-year or 2-year commitments.
+                - **Payment Method**: Manual and electronic check payments correlate with higher churn than automated billing.
+                """)
         except Exception as e:
-            st.error(f"Could not load feature importances: {e}")
+            st.error(f"Could not load feature summary: {e}")
